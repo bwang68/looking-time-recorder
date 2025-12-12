@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { BarChart3, Download, Trash2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -101,25 +102,27 @@ export function TrialList({
                       size="icon"
                       onClick={() => onViewTimeline(trial)}
                       title="View Timeline"
+                      className="text-muted-foreground hover:text-foreground hover:bg-accent"
                     >
-                      📊
+                      <BarChart3 className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => onDownloadCSV(trial)}
                       title="Download CSV"
+                      className="text-muted-foreground hover:text-foreground hover:bg-accent"
                     >
-                      ⬇️
+                      <Download className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => handleDeleteClick(trial)}
                       title="Delete Trial"
-                      className="text-destructive hover:text-destructive"
+                      className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     >
-                      🗑️
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </TableCell>
