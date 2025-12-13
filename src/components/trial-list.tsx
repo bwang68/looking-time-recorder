@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart3, Download, Trash2 } from 'lucide-react';
+import { BarChart3, Download, Trash2, UserX } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -17,21 +17,26 @@ import type { Trial } from '@/lib/types';
 
 interface TrialListProps {
   trials: Trial[];
+  subjectName?: string;
   onDeleteTrial: (trialId: string) => void;
   onClearAllTrials: () => void;
   onViewTimeline: (trial: Trial) => void;
-  onDownloadCSV: (trial: Trial) => void;
+  onDownloadCSV: () => void;
+  onDeleteSubject?: () => void;
 }
 
 export function TrialList({
   trials,
+  subjectName,
   onDeleteTrial,
   onClearAllTrials,
   onViewTimeline,
   onDownloadCSV,
+  onDeleteSubject,
 }: TrialListProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
+  const [deleteSubjectDialogOpen, setDeleteSubjectDialogOpen] = useState(false);
   const [trialToDelete, setTrialToDelete] = useState<Trial | null>(null);
 
   const handleDeleteClick = (trial: Trial) => {
@@ -52,13 +57,60 @@ export function TrialList({
     setClearAllDialogOpen(false);
   };
 
-  if (trials.length === 0) {
+  const handleConfirmDeleteSubject = () => {
+    if (onDeleteSubject) {
+      onDeleteSubject();
+    }
+    setDeleteSubjectDialogOpen(false);
+  };
+
+  if (!subjectName) {
     return (
       <div className="text-center py-12 text-muted-foreground">
-        <p className="text-lg">No trials recorded yet</p>
+        <p className="text-lg">No subject selected</p>
         <p className="text-sm mt-2">
-          Start a new recording to see your trials here
+          Create a new subject to start recording trials
         </p>
+      </div>
+    );
+  }
+
+  if (trials.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            Trials for {subjectName}
+          </h2>
+          {onDeleteSubject && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteSubjectDialogOpen(true)}
+              className="text-destructive hover:text-destructive"
+            >
+              <UserX className="h-4 w-4 mr-2" />
+              Delete Subject
+            </Button>
+          )}
+        </div>
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-lg">No trials recorded yet</p>
+          <p className="text-sm mt-2">
+            Start a new recording to see your trials here
+          </p>
+        </div>
+        
+        {/* Delete Subject Confirmation */}
+        <ConfirmDialog
+          open={deleteSubjectDialogOpen}
+          onOpenChange={setDeleteSubjectDialogOpen}
+          title="Delete Subject"
+          description={`Are you sure you want to delete "${subjectName}" and all its trials? This action cannot be undone.`}
+          confirmLabel="Delete Subject"
+          onConfirm={handleConfirmDeleteSubject}
+          variant="destructive"
+        />
       </div>
     );
   }
@@ -67,31 +119,55 @@ export function TrialList({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">
-          Trials ({trials.length})
+          Trials for {subjectName} ({trials.length})
         </h2>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setClearAllDialogOpen(true)}
-          className="text-destructive hover:text-destructive"
-        >
-          Clear All
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onDownloadCSV}
+            className="text-primary hover:text-primary"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setClearAllDialogOpen(true)}
+            className="text-destructive hover:text-destructive"
+          >
+            Clear All Trials
+          </Button>
+          {onDeleteSubject && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteSubjectDialogOpen(true)}
+              className="text-destructive hover:text-destructive"
+            >
+              <UserX className="h-4 w-4 mr-2" />
+              Delete Subject
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[60px]">#</TableHead>
               <TableHead>Trial Name</TableHead>
               <TableHead className="w-[100px]">Duration</TableHead>
               <TableHead className="w-[100px]">Date</TableHead>
-              <TableHead className="w-[150px] text-right">Actions</TableHead>
+              <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {trials.map((trial) => (
+            {trials.map((trial, index) => (
               <TableRow key={trial.id}>
+                <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                 <TableCell className="font-medium">{trial.name}</TableCell>
                 <TableCell>{formatDurationShort(trial.totalDuration)}</TableCell>
                 <TableCell>{formatDate(trial.createdAt)}</TableCell>
@@ -105,15 +181,6 @@ export function TrialList({
                       className="text-muted-foreground hover:text-foreground hover:bg-accent"
                     >
                       <BarChart3 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDownloadCSV(trial)}
-                      title="Download CSV"
-                      className="text-muted-foreground hover:text-foreground hover:bg-accent"
-                    >
-                      <Download className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -148,9 +215,20 @@ export function TrialList({
         open={clearAllDialogOpen}
         onOpenChange={setClearAllDialogOpen}
         title="Clear All Trials"
-        description={`Are you sure you want to delete all ${trials.length} trials? This action cannot be undone.`}
+        description={`Are you sure you want to delete all ${trials.length} trials for ${subjectName}? This action cannot be undone.`}
         confirmLabel="Clear All"
         onConfirm={handleConfirmClearAll}
+        variant="destructive"
+      />
+
+      {/* Delete Subject Confirmation */}
+      <ConfirmDialog
+        open={deleteSubjectDialogOpen}
+        onOpenChange={setDeleteSubjectDialogOpen}
+        title="Delete Subject"
+        description={`Are you sure you want to delete "${subjectName}" and all its trials? This action cannot be undone.`}
+        confirmLabel="Delete Subject"
+        onConfirm={handleConfirmDeleteSubject}
         variant="destructive"
       />
     </div>

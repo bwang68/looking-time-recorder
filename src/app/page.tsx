@@ -20,8 +20,9 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { downloadCSV } from '@/lib/csv-export';
-import type { Trial } from '@/lib/types';
+import { downloadSubjectCSV } from '@/lib/csv-export';
+import type { Trial, Subject } from '@/lib/types';
+import { generateId } from '@/lib/utils';
 
 export default function Home() {
   const {
@@ -36,24 +37,32 @@ export default function Home() {
 
   const { playLookSound, playAwaySound, isMuted, toggleMute } = useAudio();
 
-  const [trials, setTrials] = useState<Trial[]>([]);
-  const [newTrialDialogOpen, setNewTrialDialogOpen] = useState(false);
-  const [trialName, setTrialName] = useState('');
-  const [trialNameError, setTrialNameError] = useState('');
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
+  
+  // Dialog states
+  const [newSubjectDialogOpen, setNewSubjectDialogOpen] = useState(false);
+  const [subjectName, setSubjectName] = useState('');
+  const [subjectNameError, setSubjectNameError] = useState('');
   const [timelineTrialOpen, setTimelineTrialOpen] = useState(false);
   const [selectedTrial, setSelectedTrial] = useState<Trial | null>(null);
 
   // Track previous looking state for audio
   const prevLookingStateRef = useRef(state.lookingState);
 
-  // Load trials from localStorage on mount
+  // Load subjects from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('looking-time-recorder-trials');
+    const saved = localStorage.getItem('looking-time-recorder-subjects');
     if (saved) {
       try {
-        setTrials(JSON.parse(saved));
+        const loadedSubjects = JSON.parse(saved);
+        setSubjects(loadedSubjects);
+        // Find the most recent subject and set as current
+        if (loadedSubjects.length > 0) {
+          setCurrentSubject(loadedSubjects[loadedSubjects.length - 1]);
+        }
       } catch (e) {
-        console.error('Failed to load trials:', e);
+        console.error('Failed to load subjects:', e);
       }
     }
   }, []);
@@ -86,6 +95,30 @@ export default function Home() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isRecording]);
 
+  // Helper to save subjects to localStorage
+  const saveSubjects = useCallback((updatedSubjects: Subject[]) => {
+    setSubjects(updatedSubjects);
+    localStorage.setItem('looking-time-recorder-subjects', JSON.stringify(updatedSubjects));
+  }, []);
+
+  // Generate next trial name
+  const getNextTrialName = useCallback(() => {
+    if (!currentSubject) return 'Trial 1';
+    return `Trial ${currentSubject.trials.length + 1}`;
+  }, [currentSubject]);
+
+  // Handle starting a new recording
+  const handleStartRecording = useCallback(() => {
+    if (!currentSubject) {
+      toast.error('Please create or select a subject first');
+      return;
+    }
+
+    const trialName = getNextTrialName();
+    startRecording(trialName);
+    toast.success(`Recording ${trialName} started`);
+  }, [currentSubject, startRecording, getNextTrialName]);
+
   // Keyboard event handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -106,10 +139,14 @@ export default function Home() {
         }
       }
 
-      // Enter - open new trial dialog when not recording
-      if (e.code === 'Enter' && !isRecording && !newTrialDialogOpen) {
+      // Enter - start recording (if subject selected) or open new subject dialog
+      if (e.code === 'Enter' && !isRecording && !newSubjectDialogOpen) {
         e.preventDefault();
-        setNewTrialDialogOpen(true);
+        if (currentSubject) {
+          handleStartRecording();
+        } else {
+          setNewSubjectDialogOpen(true);
+        }
       }
 
       // Escape - cancel recording with confirmation
@@ -144,63 +181,98 @@ export default function Home() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isRecording, startLooking, stopLooking, cancelRecording, newTrialDialogOpen]);
+  }, [isRecording, startLooking, stopLooking, cancelRecording, newSubjectDialogOpen, currentSubject, handleStartRecording]);
 
-  // Handle starting a new recording
-  const handleStartRecording = useCallback(() => {
-    if (!trialName.trim()) {
-      setTrialNameError('Please enter a trial name');
+  // Handle creating a new subject
+  const handleCreateSubject = useCallback(() => {
+    if (!subjectName.trim()) {
+      setSubjectNameError('Please enter a Subject ID');
       return;
     }
 
     // Check for unique name
-    if (trials.some((t) => t.name.toLowerCase() === trialName.trim().toLowerCase())) {
-      setTrialNameError('A trial with this name already exists');
+    if (subjects.some((s) => s.name.toLowerCase() === subjectName.trim().toLowerCase())) {
+      setSubjectNameError('A subject with this ID already exists');
       return;
     }
 
-    startRecording(trialName.trim());
-    setNewTrialDialogOpen(false);
-    setTrialName('');
-    setTrialNameError('');
-    toast.success('Recording started');
-  }, [trialName, trials, startRecording]);
+    const newSubject: Subject = {
+      id: generateId(),
+      name: subjectName.trim(),
+      createdAt: new Date().toISOString(),
+      trials: [],
+    };
+
+    const updatedSubjects = [...subjects, newSubject];
+    saveSubjects(updatedSubjects);
+    setCurrentSubject(newSubject);
+    setNewSubjectDialogOpen(false);
+    setSubjectName('');
+    setSubjectNameError('');
+    toast.success(`Subject "${newSubject.name}" created!`);
+  }, [subjectName, subjects, saveSubjects]);
 
   // Handle ending recording
   const handleEndRecording = useCallback(() => {
+    if (!currentSubject) return;
+
     const completedTrial = endRecording();
     if (completedTrial) {
-      const updatedTrials = [...trials, completedTrial];
-      setTrials(updatedTrials);
-      localStorage.setItem(
-        'looking-time-recorder-trials',
-        JSON.stringify(updatedTrials)
+      // Add the trial to the current subject
+      const updatedSubject = {
+        ...currentSubject,
+        trials: [...currentSubject.trials, completedTrial],
+      };
+      
+      const updatedSubjects = subjects.map((s) =>
+        s.id === currentSubject.id ? updatedSubject : s
       );
+      
+      saveSubjects(updatedSubjects);
+      setCurrentSubject(updatedSubject);
       toast.success(`Trial "${completedTrial.name}" saved!`);
       
       // Show timeline for the completed trial
       setSelectedTrial(completedTrial);
       setTimelineTrialOpen(true);
     }
-  }, [endRecording, trials]);
+  }, [endRecording, currentSubject, subjects, saveSubjects]);
 
   // Handle deleting a trial
   const handleDeleteTrial = useCallback((trialId: string) => {
-    const updatedTrials = trials.filter((t) => t.id !== trialId);
-    setTrials(updatedTrials);
-    localStorage.setItem(
-      'looking-time-recorder-trials',
-      JSON.stringify(updatedTrials)
-    );
-    toast.success('Trial deleted');
-  }, [trials]);
+    if (!currentSubject) return;
 
-  // Handle clearing all trials
+    const updatedSubject = {
+      ...currentSubject,
+      trials: currentSubject.trials.filter((t) => t.id !== trialId),
+    };
+
+    const updatedSubjects = subjects.map((s) =>
+      s.id === currentSubject.id ? updatedSubject : s
+    );
+
+    saveSubjects(updatedSubjects);
+    setCurrentSubject(updatedSubject);
+    toast.success('Trial deleted');
+  }, [currentSubject, subjects, saveSubjects]);
+
+  // Handle clearing all trials for current subject
   const handleClearAllTrials = useCallback(() => {
-    setTrials([]);
-    localStorage.removeItem('looking-time-recorder-trials');
+    if (!currentSubject) return;
+
+    const updatedSubject = {
+      ...currentSubject,
+      trials: [],
+    };
+
+    const updatedSubjects = subjects.map((s) =>
+      s.id === currentSubject.id ? updatedSubject : s
+    );
+
+    saveSubjects(updatedSubjects);
+    setCurrentSubject(updatedSubject);
     toast.success('All trials cleared');
-  }, []);
+  }, [currentSubject, subjects, saveSubjects]);
 
   // Handle viewing timeline
   const handleViewTimeline = useCallback((trial: Trial) => {
@@ -208,11 +280,33 @@ export default function Home() {
     setTimelineTrialOpen(true);
   }, []);
 
-  // Handle downloading CSV
-  const handleDownloadCSV = useCallback((trial: Trial) => {
-    downloadCSV(trial);
-    toast.success(`Downloaded ${trial.name}.csv`);
+  // Handle downloading CSV for current subject
+  const handleDownloadCSV = useCallback(() => {
+    if (!currentSubject || currentSubject.trials.length === 0) {
+      toast.error('No trials to download');
+      return;
+    }
+    downloadSubjectCSV(currentSubject);
+    toast.success(`Downloaded ${currentSubject.name}.csv`);
+  }, [currentSubject]);
+
+  // Handle switching subjects
+  const handleSelectSubject = useCallback((subject: Subject) => {
+    setCurrentSubject(subject);
+    toast.info(`Switched to subject "${subject.name}"`);
   }, []);
+
+  // Handle deleting a subject
+  const handleDeleteSubject = useCallback((subjectId: string) => {
+    const updatedSubjects = subjects.filter((s) => s.id !== subjectId);
+    saveSubjects(updatedSubjects);
+    
+    // If we deleted the current subject, select another or null
+    if (currentSubject?.id === subjectId) {
+      setCurrentSubject(updatedSubjects.length > 0 ? updatedSubjects[updatedSubjects.length - 1] : null);
+    }
+    toast.success('Subject deleted');
+  }, [subjects, currentSubject, saveSubjects]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -236,6 +330,53 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-3xl space-y-8">
+        {/* Subject Selection Bar */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                {currentSubject ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Current Subject:</span>
+                    <span className="font-semibold text-lg">{currentSubject.name}</span>
+                    <span className="text-sm text-muted-foreground">
+                      ({currentSubject.trials.length} trial{currentSubject.trials.length !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">No subject selected</span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setNewSubjectDialogOpen(true)}
+                  disabled={isRecording}
+                >
+                  New Subject
+                </Button>
+                {subjects.length > 1 && (
+                  <select
+                    className="h-10 px-3 py-2 border rounded-md bg-background text-sm"
+                    value={currentSubject?.id || ''}
+                    onChange={(e) => {
+                      const subject = subjects.find((s) => s.id === e.target.value);
+                      if (subject) handleSelectSubject(subject);
+                    }}
+                    disabled={isRecording}
+                  >
+                    {subjects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardContent className="pt-6 space-y-6">
             {/* Recording Display */}
@@ -254,10 +395,16 @@ export default function Home() {
               {!isRecording ? (
                 <Button
                   size="lg"
-                  onClick={() => setNewTrialDialogOpen(true)}
+                  onClick={() => {
+                    if (!currentSubject) {
+                      setNewSubjectDialogOpen(true);
+                    } else {
+                      handleStartRecording();
+                    }
+                  }}
                   className="min-w-[180px]"
                 >
-                  Start Recording
+                  {currentSubject ? `Start ${getNextTrialName()}` : 'New Subject'}
                 </Button>
               ) : (
                 <Button
@@ -281,7 +428,7 @@ export default function Home() {
                 </p>
               ) : (
                 <p>
-                  Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Enter</kbd> to start recording
+                  Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Enter</kbd> to {currentSubject ? 'start recording' : 'create subject'}
                 </p>
               )}
             </div>
@@ -292,49 +439,51 @@ export default function Home() {
         <Card>
           <CardContent className="pt-6">
             <TrialList
-              trials={trials}
+              trials={currentSubject?.trials || []}
+              subjectName={currentSubject?.name}
               onDeleteTrial={handleDeleteTrial}
               onClearAllTrials={handleClearAllTrials}
               onViewTimeline={handleViewTimeline}
               onDownloadCSV={handleDownloadCSV}
+              onDeleteSubject={currentSubject ? () => handleDeleteSubject(currentSubject.id) : undefined}
             />
           </CardContent>
         </Card>
       </main>
 
-      {/* New Trial Dialog */}
-      <Dialog open={newTrialDialogOpen} onOpenChange={setNewTrialDialogOpen}>
+      {/* New Subject Dialog */}
+      <Dialog open={newSubjectDialogOpen} onOpenChange={setNewSubjectDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Trial</DialogTitle>
+            <DialogTitle>New Subject</DialogTitle>
             <DialogDescription>
-              Enter a name for this trial. Names must be unique.
+              Enter a Subject ID. This will group all trials for this subject together.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="e.g., Child_001_Session_A"
-              value={trialName}
+              placeholder="e.g., Subject_001"
+              value={subjectName}
               onChange={(e) => {
-                setTrialName(e.target.value);
-                setTrialNameError('');
+                setSubjectName(e.target.value);
+                setSubjectNameError('');
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  handleStartRecording();
+                  handleCreateSubject();
                 }
               }}
               autoFocus
             />
-            {trialNameError && (
-              <p className="text-sm text-destructive mt-2">{trialNameError}</p>
+            {subjectNameError && (
+              <p className="text-sm text-destructive mt-2">{subjectNameError}</p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNewTrialDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setNewSubjectDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleStartRecording}>Start Recording</Button>
+            <Button onClick={handleCreateSubject}>Create Subject</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -18,7 +18,7 @@ export interface LookingInterval {
 export interface Trial {
   /** Unique identifier for the trial */
   id: string;
-  /** User-defined name for the trial (must be unique) */
+  /** User-defined name for the trial (must be unique within subject) */
   name: string;
   /** ISO date string when the trial was created */
   createdAt: string;
@@ -26,6 +26,20 @@ export interface Trial {
   totalDuration: number;
   /** Array of looking intervals recorded during the trial */
   intervals: LookingInterval[];
+}
+
+/**
+ * Represents a subject with multiple trials
+ */
+export interface Subject {
+  /** Unique identifier for the subject */
+  id: string;
+  /** User-defined Subject ID (e.g., "Subject_001") */
+  name: string;
+  /** ISO date string when the subject was created */
+  createdAt: string;
+  /** Array of trials recorded for this subject */
+  trials: Trial[];
 }
 
 /**
