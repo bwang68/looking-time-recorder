@@ -16,8 +16,8 @@ interface KeyboardShortcutsProps {
 export function KeyboardShortcuts({ variant = 'button' }: KeyboardShortcutsProps) {
   const shortcuts = [
     {
-      key: 'Space',
-      description: 'Toggle looking state',
+      key: 'Space (Hold)',
+      description: 'Hold = Looking, Release = Not Looking',
       context: 'During recording',
     },
     {

@@ -28,7 +28,7 @@ function recordingReducer(
       return {
         ...state,
         status: 'recording',
-        lookingState: 'neutral',
+        lookingState: 'lookingAway',
         startTime: now,
         elapsedTime: 0,
         currentTrial: {
@@ -71,49 +71,53 @@ function recordingReducer(
       return initialState;
     }
 
-    case 'TOGGLE_LOOKING': {
+    case 'START_LOOKING': {
       if (state.status !== 'recording') {
+        return state;
+      }
+
+      // Already looking, ignore
+      if (state.lookingState === 'looking') {
         return state;
       }
 
       const now = state.elapsedTime;
 
-      // From neutral -> looking (first toggle)
-      if (state.lookingState === 'neutral') {
-        return {
-          ...state,
-          lookingState: 'looking',
-          currentIntervalStart: now,
-        };
+      // Start a new looking interval
+      return {
+        ...state,
+        lookingState: 'looking',
+        currentIntervalStart: now,
+      };
+    }
+
+    case 'STOP_LOOKING': {
+      if (state.status !== 'recording') {
+        return state;
       }
 
-      // From looking -> lookingAway (close the interval)
-      if (state.lookingState === 'looking') {
-        const newInterval: LookingInterval = {
-          startTime: state.currentIntervalStart!,
-          endTime: now,
-        };
-        return {
-          ...state,
-          lookingState: 'lookingAway',
-          currentTrial: {
-            ...state.currentTrial,
-            intervals: [...(state.currentTrial?.intervals || []), newInterval],
-          },
-          currentIntervalStart: null,
-        };
+      // Not currently looking, ignore
+      if (state.lookingState !== 'looking' || state.currentIntervalStart === null) {
+        return state;
       }
 
-      // From lookingAway -> looking (start new interval)
-      if (state.lookingState === 'lookingAway') {
-        return {
-          ...state,
-          lookingState: 'looking',
-          currentIntervalStart: now,
-        };
-      }
+      const now = state.elapsedTime;
 
-      return state;
+      // Close the current looking interval
+      const newInterval: LookingInterval = {
+        startTime: state.currentIntervalStart,
+        endTime: now,
+      };
+
+      return {
+        ...state,
+        lookingState: 'lookingAway',
+        currentTrial: {
+          ...state.currentTrial,
+          intervals: [...(state.currentTrial?.intervals || []), newInterval],
+        },
+        currentIntervalStart: null,
+      };
     }
 
     case 'TICK': {
@@ -140,8 +144,10 @@ export interface UseRecordingReturn {
   endRecording: () => Trial | null;
   /** Cancel the current recording without saving */
   cancelRecording: () => void;
-  /** Toggle between looking states */
-  toggleLookingState: () => void;
+  /** Start looking (spacebar pressed down) */
+  startLooking: () => void;
+  /** Stop looking (spacebar released) */
+  stopLooking: () => void;
   /** Whether a recording is currently active */
   isRecording: boolean;
 }
@@ -214,8 +220,12 @@ export function useRecording(): UseRecordingReturn {
     dispatch({ type: 'CANCEL_RECORDING' });
   }, []);
 
-  const toggleLookingState = useCallback(() => {
-    dispatch({ type: 'TOGGLE_LOOKING' });
+  const startLooking = useCallback(() => {
+    dispatch({ type: 'START_LOOKING' });
+  }, []);
+
+  const stopLooking = useCallback(() => {
+    dispatch({ type: 'STOP_LOOKING' });
   }, []);
 
   return {
@@ -223,7 +233,8 @@ export function useRecording(): UseRecordingReturn {
     startRecording,
     endRecording,
     cancelRecording,
-    toggleLookingState,
+    startLooking,
+    stopLooking,
     isRecording: state.status === 'recording',
   };
 }

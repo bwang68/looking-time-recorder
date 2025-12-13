@@ -24,7 +24,7 @@ const stateConfig = {
   lookingAway: {
     bgColor: 'bg-orange-500',
     textColor: 'text-white',
-    label: 'LOOKING AWAY',
+    label: 'NOT LOOKING',
     icon: '○',
   },
 };
@@ -56,9 +56,9 @@ export function RecordingDisplay({ status, lookingState }: RecordingDisplayProps
       <p className={cn('text-3xl font-bold tracking-wide', config.textColor)}>
         {config.label}
       </p>
-      {lookingState === 'neutral' && (
+      {lookingState === 'lookingAway' && (
         <p className={cn('text-sm mt-4 opacity-80', config.textColor)}>
-          Press Spacebar when child starts looking
+          Hold Spacebar when child is looking
         </p>
       )}
     </div>

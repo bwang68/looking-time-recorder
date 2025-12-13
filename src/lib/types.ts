@@ -35,9 +35,9 @@ export type RecordingStatus = 'idle' | 'recording';
 
 /**
  * The current looking state during an active recording
- * - 'neutral': Recording started but no spacebar pressed yet
- * - 'looking': Child is looking at the stimulus
- * - 'lookingAway': Child is looking away from the stimulus
+ * - 'neutral': Initial state before recording starts
+ * - 'looking': Child is looking at the stimulus (spacebar held)
+ * - 'lookingAway': Child is looking away from the stimulus (spacebar released)
  */
 export type LookingState = 'neutral' | 'looking' | 'lookingAway';
 
@@ -66,5 +66,6 @@ export type RecordingAction =
   | { type: 'START_RECORDING'; payload: { trialName: string } }
   | { type: 'END_RECORDING' }
   | { type: 'CANCEL_RECORDING' }
-  | { type: 'TOGGLE_LOOKING' }
+  | { type: 'START_LOOKING' }
+  | { type: 'STOP_LOOKING' }
   | { type: 'TICK'; payload: { elapsed: number } };

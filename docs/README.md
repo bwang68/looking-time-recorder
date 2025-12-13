@@ -30,9 +30,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 1. Click "Start Recording" or press **Enter**
 2. Enter a name for the trial
-3. Press **Spacebar** when the child starts looking
-4. Press **Spacebar** again when the child looks away
-5. Continue toggling as needed
+3. **Hold Spacebar** when the child is looking at the stimulus
+4. **Release Spacebar** when the child looks away
+5. Continue holding/releasing as needed
 6. Click "End Recording" to save the trial
 7. Download the CSV file for analysis
 
@@ -40,7 +40,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 | Key | Action |
 |-----|--------|
-| **Spacebar** | Toggle looking state (during recording) |
+| **Spacebar (Hold)** | Hold down = Looking, Release = Not Looking |
 | **Enter** | Start new recording |
 | **Escape** | Cancel current recording |
 
@@ -64,10 +64,9 @@ The recording system uses a state machine with the following states:
 ### State Transitions
 
 ```
-idle → START_RECORDING → recording (neutral)
-recording (neutral) → TOGGLE → recording (looking)
-recording (looking) → TOGGLE → recording (lookingAway)
-recording (lookingAway) → TOGGLE → recording (looking)
+idle → START_RECORDING → recording (lookingAway)
+recording (lookingAway) → HOLD_SPACE → recording (looking)
+recording (looking) → RELEASE_SPACE → recording (lookingAway)
 recording → END_RECORDING → idle
 recording → CANCEL_RECORDING → idle
 ```

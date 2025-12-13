@@ -29,7 +29,8 @@ export default function Home() {
     startRecording,
     endRecording,
     cancelRecording,
-    toggleLookingState,
+    startLooking,
+    stopLooking,
     isRecording,
   } = useRecording();
 
@@ -96,10 +97,13 @@ export default function Home() {
         return;
       }
 
-      // Spacebar - toggle looking state during recording
+      // Spacebar - start looking (hold down = looking)
       if (e.code === 'Space' && isRecording) {
         e.preventDefault(); // Prevent page scroll
-        toggleLookingState();
+        // Ignore key repeat events (when holding down)
+        if (!e.repeat) {
+          startLooking();
+        }
       }
 
       // Enter - open new trial dialog when not recording
@@ -118,9 +122,29 @@ export default function Home() {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      // Spacebar released - stop looking
+      if (e.code === 'Space' && isRecording) {
+        e.preventDefault();
+        stopLooking();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRecording, toggleLookingState, cancelRecording, newTrialDialogOpen]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isRecording, startLooking, stopLooking, cancelRecording, newTrialDialogOpen]);
 
   // Handle starting a new recording
   const handleStartRecording = useCallback(() => {
