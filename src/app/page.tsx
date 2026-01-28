@@ -6,7 +6,6 @@ import { useAudio } from '@/hooks/use-audio';
 import { RecordingDisplay } from '@/components/recording-display';
 import { Timer } from '@/components/timer';
 import { TrialList } from '@/components/trial-list';
-import { TimelineView } from '@/components/timeline-view';
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,15 +20,14 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { downloadSubjectCSV } from '@/lib/csv-export';
-import type { Trial, Subject } from '@/lib/types';
-import { generateId } from '@/lib/utils';
+import type { Subject } from '@/lib/types';
+import { formatDurationShort, generateId } from '@/lib/utils';
 
 export default function Home() {
   const {
     state,
     startRecording,
     endRecording,
-    cancelRecording,
     startLooking,
     stopLooking,
     isRecording,
@@ -39,16 +37,22 @@ export default function Home() {
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
+  const [trialTimeLimitMs, setTrialTimeLimitMs] = useState(120000); // default 2 minutes
+  const [timeLimitDialogOpen, setTimeLimitDialogOpen] = useState(false);
+  const [timeLimitInput, setTimeLimitInput] = useState('120'); // seconds
+  const [timeLimitError, setTimeLimitError] = useState('');
+  const [selectedTrialIndex, setSelectedTrialIndex] = useState<number | null>(null);
   
   // Dialog states
   const [newSubjectDialogOpen, setNewSubjectDialogOpen] = useState(false);
   const [subjectName, setSubjectName] = useState('');
   const [subjectNameError, setSubjectNameError] = useState('');
-  const [timelineTrialOpen, setTimelineTrialOpen] = useState(false);
-  const [selectedTrial, setSelectedTrial] = useState<Trial | null>(null);
+  // Timeline view removed per feedback
 
   // Track previous looking state for audio
   const prevLookingStateRef = useRef(state.lookingState);
+  // Prevent duplicate auto-end firing
+  const autoEndTriggeredRef = useRef(false);
 
   // Load subjects from localStorage on mount
   useEffect(() => {
@@ -80,6 +84,13 @@ export default function Home() {
     }
     prevLookingStateRef.current = state.lookingState;
   }, [state.lookingState, state.status, playLookSound, playAwaySound]);
+
+  // Reset auto-end guard when recording stops
+  useEffect(() => {
+    if (!isRecording) {
+      autoEndTriggeredRef.current = false;
+    }
+  }, [isRecording]);
 
   // Warn before closing during recording
   useEffect(() => {
@@ -116,8 +127,31 @@ export default function Home() {
 
     const trialName = getNextTrialName();
     startRecording(trialName);
+    autoEndTriggeredRef.current = false;
     toast.success(`Recording ${trialName} started`);
   }, [currentSubject, startRecording, getNextTrialName]);
+
+  // Handle ending recording
+  const handleEndRecording = useCallback(() => {
+    if (!currentSubject) return;
+
+    const completedTrial = endRecording();
+    if (completedTrial) {
+      // Add the trial to the current subject
+      const updatedSubject = {
+        ...currentSubject,
+        trials: [...currentSubject.trials, completedTrial],
+      };
+      
+      const updatedSubjects = subjects.map((s) =>
+        s.id === currentSubject.id ? updatedSubject : s
+      );
+      
+      saveSubjects(updatedSubjects);
+      setCurrentSubject(updatedSubject);
+      toast.success(`Trial "${completedTrial.name}" saved!`);
+    }
+  }, [endRecording, currentSubject, subjects, saveSubjects]);
 
   // Keyboard event handler
   useEffect(() => {
@@ -130,32 +164,43 @@ export default function Home() {
         return;
       }
 
-      // Spacebar - start looking (hold down = looking)
-      if (e.code === 'Space' && isRecording) {
-        e.preventDefault(); // Prevent page scroll
-        // Ignore key repeat events (when holding down)
+      // Spacebar - start recording if idle; otherwise control looking state
+      if (e.code === 'Space') {
+        // Always block scroll
+        e.preventDefault();
+
+        if (!isRecording) {
+          if (currentSubject) {
+            handleStartRecording();
+
+          } else if (!newSubjectDialogOpen) {
+            setNewSubjectDialogOpen(true);
+          }
+          return;
+        }
+
+        // If already recording, treat space as looking toggle (no repeats)
         if (!e.repeat) {
           startLooking();
         }
       }
 
-      // Enter - start recording (if subject selected) or open new subject dialog
-      if (e.code === 'Enter' && !isRecording && !newSubjectDialogOpen) {
+      // Enter - move to next trial in list
+      if (e.code === 'Enter' && !isRecording && !newSubjectDialogOpen && currentSubject) {
         e.preventDefault();
-        if (currentSubject) {
-          handleStartRecording();
-        } else {
-          setNewSubjectDialogOpen(true);
+        const numTrials = currentSubject.trials.length;
+        if (numTrials > 0) {
+          const nextIndex = selectedTrialIndex === null || selectedTrialIndex >= numTrials - 1 ? 0 : selectedTrialIndex + 1;
+          setSelectedTrialIndex(nextIndex);
+          toast.info(`Selected ${currentSubject.trials[nextIndex].name}`);
         }
+        return;
       }
 
-      // Escape - cancel recording with confirmation
+      // Escape - end and save recording
       if (e.code === 'Escape' && isRecording) {
         e.preventDefault();
-        if (window.confirm('Are you sure you want to cancel this recording? All data will be lost.')) {
-          cancelRecording();
-          toast.info('Recording cancelled');
-        }
+        handleEndRecording();
       }
     };
 
@@ -181,7 +226,7 @@ export default function Home() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isRecording, startLooking, stopLooking, cancelRecording, newSubjectDialogOpen, currentSubject, handleStartRecording]);
+  }, [isRecording, startLooking, stopLooking, newSubjectDialogOpen, currentSubject, handleStartRecording, handleEndRecording]);
 
   // Handle creating a new subject
   const handleCreateSubject = useCallback(() => {
@@ -212,31 +257,32 @@ export default function Home() {
     toast.success(`Subject "${newSubject.name}" created!`);
   }, [subjectName, subjects, saveSubjects]);
 
-  // Handle ending recording
-  const handleEndRecording = useCallback(() => {
-    if (!currentSubject) return;
-
-    const completedTrial = endRecording();
-    if (completedTrial) {
-      // Add the trial to the current subject
-      const updatedSubject = {
-        ...currentSubject,
-        trials: [...currentSubject.trials, completedTrial],
-      };
-      
-      const updatedSubjects = subjects.map((s) =>
-        s.id === currentSubject.id ? updatedSubject : s
-      );
-      
-      saveSubjects(updatedSubjects);
-      setCurrentSubject(updatedSubject);
-      toast.success(`Trial "${completedTrial.name}" saved!`);
-      
-      // Show timeline for the completed trial
-      setSelectedTrial(completedTrial);
-      setTimelineTrialOpen(true);
+  // Handle saving time limit (seconds -> ms)
+  const handleSaveTimeLimit = useCallback(() => {
+    const seconds = Number.parseInt(timeLimitInput, 10);
+    if (Number.isNaN(seconds) || seconds <= 0) {
+      setTimeLimitError('Enter a valid number of seconds greater than 0');
+      return;
     }
-  }, [endRecording, currentSubject, subjects, saveSubjects]);
+
+    const ms = seconds * 1000;
+    setTrialTimeLimitMs(ms);
+    setTimeLimitDialogOpen(false);
+    setTimeLimitError('');
+    toast.success(`Trial time limit set to ${formatDurationShort(ms)}`);
+  }, [timeLimitInput]);
+
+  // Auto-end recording when time limit reached
+  useEffect(() => {
+    if (!isRecording) return;
+    if (autoEndTriggeredRef.current) return;
+
+    if (state.elapsedTime >= trialTimeLimitMs) {
+      autoEndTriggeredRef.current = true;
+      handleEndRecording();
+      toast.info(`Trial auto-ended at ${formatDurationShort(trialTimeLimitMs)} limit`);
+    }
+  }, [isRecording, state.elapsedTime, trialTimeLimitMs, handleEndRecording]);
 
   // Handle deleting a trial
   const handleDeleteTrial = useCallback((trialId: string) => {
@@ -273,12 +319,6 @@ export default function Home() {
     setCurrentSubject(updatedSubject);
     toast.success('All trials cleared');
   }, [currentSubject, subjects, saveSubjects]);
-
-  // Handle viewing timeline
-  const handleViewTimeline = useCallback((trial: Trial) => {
-    setSelectedTrial(trial);
-    setTimelineTrialOpen(true);
-  }, []);
 
   // Handle downloading CSV for current subject
   const handleDownloadCSV = useCallback(() => {
@@ -329,10 +369,10 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8 max-w-3xl space-y-8">
+      <main className="container mx-auto px-6 py-8 max-w-4xl space-y-8">
         {/* Subject Selection Bar */}
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-3 pb-3">
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1">
                 {currentSubject ? (
@@ -354,6 +394,17 @@ export default function Home() {
                   disabled={isRecording}
                 >
                   New Subject
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setTimeLimitInput(String(Math.round(trialTimeLimitMs / 1000)));
+                    setTimeLimitDialogOpen(true);
+                    setTimeLimitError('');
+                  }}
+                  disabled={isRecording}
+                >
+                  Set Trial Time Limit
                 </Button>
                 {subjects.length > 1 && (
                   <select
@@ -389,6 +440,7 @@ export default function Home() {
             <div className="flex justify-center py-4">
               <Timer elapsedTime={state.elapsedTime} isRecording={isRecording} />
             </div>
+            <p className="text-center text-xs text-muted-foreground">Time limit: {formatDurationShort(trialTimeLimitMs)}</p>
 
             {/* Controls */}
             <div className="flex justify-center gap-4">
@@ -405,6 +457,7 @@ export default function Home() {
                   className="min-w-[180px]"
                 >
                   {currentSubject ? `Start ${getNextTrialName()}` : 'New Subject'}
+                  <span className="text-xs ml-2 opacity-75">(Space)</span>
                 </Button>
               ) : (
                 <Button
@@ -419,16 +472,16 @@ export default function Home() {
             </div>
 
             {/* Keyboard Hints */}
-            <div className="text-center text-sm text-muted-foreground">
+            <div className="text-center text-sm text-muted-foreground space-y-1">
               {isRecording ? (
                 <p>
                   Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Space</kbd> to toggle looking state
                   {' • '}
-                  <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Esc</kbd> to cancel
+                  <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Esc</kbd> to save & end
                 </p>
               ) : (
                 <p>
-                  Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Enter</kbd> to {currentSubject ? 'start recording' : 'create subject'}
+                  Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Esc</kbd> at any time to exit and save the trial
                 </p>
               )}
             </div>
@@ -441,9 +494,9 @@ export default function Home() {
             <TrialList
               trials={currentSubject?.trials || []}
               subjectName={currentSubject?.name}
+              selectedTrialIndex={selectedTrialIndex}
               onDeleteTrial={handleDeleteTrial}
               onClearAllTrials={handleClearAllTrials}
-              onViewTimeline={handleViewTimeline}
               onDownloadCSV={handleDownloadCSV}
               onDeleteSubject={currentSubject ? () => handleDeleteSubject(currentSubject.id) : undefined}
             />
@@ -488,12 +541,52 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      {/* Timeline View Dialog */}
-      <TimelineView
-        trial={selectedTrial}
-        open={timelineTrialOpen}
-        onOpenChange={setTimelineTrialOpen}
-      />
+      {/* Time Limit Dialog */}
+      <Dialog
+        open={timeLimitDialogOpen}
+        onOpenChange={(open) => {
+          setTimeLimitDialogOpen(open);
+          if (!open) setTimeLimitError('');
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Trial Time Limit</DialogTitle>
+            <DialogDescription>
+              Configure the maximum duration for each trial. Recording will auto-stop and save at this limit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <label className="text-sm font-medium">Time limit (seconds)</label>
+            <Input
+              type="number"
+              min={1}
+              value={timeLimitInput}
+              onChange={(e) => {
+                setTimeLimitInput(e.target.value);
+                setTimeLimitError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveTimeLimit();
+              }}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Current: {formatDurationShort(trialTimeLimitMs)}
+            </p>
+            {timeLimitError && (
+              <p className="text-sm text-destructive">{timeLimitError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTimeLimitDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTimeLimit}>Save Limit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

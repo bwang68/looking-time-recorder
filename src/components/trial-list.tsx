@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart3, Download, Trash2, UserX } from 'lucide-react';
+import { Download, Trash2, UserX } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -18,9 +18,9 @@ import type { Trial } from '@/lib/types';
 interface TrialListProps {
   trials: Trial[];
   subjectName?: string;
+  selectedTrialIndex?: number | null;
   onDeleteTrial: (trialId: string) => void;
   onClearAllTrials: () => void;
-  onViewTimeline: (trial: Trial) => void;
   onDownloadCSV: () => void;
   onDeleteSubject?: () => void;
 }
@@ -28,9 +28,9 @@ interface TrialListProps {
 export function TrialList({
   trials,
   subjectName,
+  selectedTrialIndex,
   onDeleteTrial,
   onClearAllTrials,
-  onViewTimeline,
   onDownloadCSV,
   onDeleteSubject,
 }: TrialListProps) {
@@ -166,22 +166,13 @@ export function TrialList({
           </TableHeader>
           <TableBody>
             {trials.map((trial, index) => (
-              <TableRow key={trial.id}>
+              <TableRow key={trial.id} className={selectedTrialIndex === index ? 'bg-accent' : ''}>
                 <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                 <TableCell className="font-medium">{trial.name}</TableCell>
                 <TableCell>{formatDurationShort(trial.totalDuration)}</TableCell>
                 <TableCell>{formatDate(trial.createdAt)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onViewTimeline(trial)}
-                      title="View Timeline"
-                      className="text-muted-foreground hover:text-foreground hover:bg-accent"
-                    >
-                      <BarChart3 className="h-4 w-4" />
-                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

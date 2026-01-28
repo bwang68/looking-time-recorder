@@ -28,7 +28,7 @@ function recordingReducer(
       return {
         ...state,
         status: 'recording',
-        lookingState: 'lookingAway',
+        lookingState: 'looking',
         startTime: now,
         elapsedTime: 0,
         currentTrial: {
@@ -38,7 +38,7 @@ function recordingReducer(
           totalDuration: 0,
           intervals: [],
         },
-        currentIntervalStart: null,
+        currentIntervalStart: 0,
       };
     }
 
