@@ -26,6 +26,12 @@ export interface Trial {
   totalDuration: number;
   /** Array of looking intervals recorded during the trial */
   intervals: LookingInterval[];
+  /** Whether the experimenter marked this trial as completed */
+  trialCompleted?: boolean;
+  /** Whether the experimenter marked that the bear was found */
+  bearFound?: boolean;
+  /** Free-text notes entered by the experimenter */
+  notes?: string;
 }
 
 /**

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, Trash2, UserX } from 'lucide-react';
 import {
   Table,
@@ -11,15 +11,62 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { formatDurationShort, formatDate } from '@/lib/utils';
 import type { Trial } from '@/lib/types';
+
+function EditableTrialNameCell({
+  trial,
+  onUpdateTrialName,
+}: {
+  trial: Trial;
+  onUpdateTrialName: (trialId: string, name: string) => void;
+}) {
+  const [draftName, setDraftName] = useState(trial.name);
+
+  useEffect(() => {
+    setDraftName(trial.name);
+  }, [trial.name]);
+
+  return (
+    <Input
+      value={draftName}
+      onChange={(e) => setDraftName(e.target.value)}
+      onBlur={() => {
+        const trimmedName = draftName.trim();
+        if (trimmedName && trimmedName !== trial.name) {
+          onUpdateTrialName(trial.id, trimmedName);
+        } else {
+          setDraftName(trial.name);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        }
+
+        if (e.key === 'Escape') {
+          setDraftName(trial.name);
+          e.currentTarget.blur();
+        }
+      }}
+      className="h-8"
+      aria-label={`Name for ${trial.name}`}
+    />
+  );
+}
 
 interface TrialListProps {
   trials: Trial[];
   subjectName?: string;
   selectedTrialIndex?: number | null;
   onDeleteTrial: (trialId: string) => void;
+  onUpdateTrialName: (trialId: string, name: string) => void;
+  onUpdateTrialAnnotations: (
+    trialId: string,
+    updates: { trialCompleted?: boolean; bearFound?: boolean; notes?: string }
+  ) => void;
   onClearAllTrials: () => void;
   onDownloadCSV: () => void;
   onDeleteSubject?: () => void;
@@ -30,6 +77,8 @@ export function TrialList({
   subjectName,
   selectedTrialIndex,
   onDeleteTrial,
+  onUpdateTrialName,
+  onUpdateTrialAnnotations,
   onClearAllTrials,
   onDownloadCSV,
   onDeleteSubject,
@@ -160,6 +209,9 @@ export function TrialList({
               <TableHead className="w-[60px]">#</TableHead>
               <TableHead>Trial Name</TableHead>
               <TableHead className="w-[100px]">Duration</TableHead>
+              <TableHead className="w-[110px]">Completed</TableHead>
+              <TableHead className="w-[100px]">Bear Found</TableHead>
+              <TableHead className="w-[260px]">Notes</TableHead>
               <TableHead className="w-[100px]">Date</TableHead>
               <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
@@ -168,8 +220,43 @@ export function TrialList({
             {trials.map((trial, index) => (
               <TableRow key={trial.id} className={selectedTrialIndex === index ? 'bg-accent' : ''}>
                 <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                <TableCell className="font-medium">{trial.name}</TableCell>
+                <TableCell className="font-medium">
+                  <EditableTrialNameCell trial={trial} onUpdateTrialName={onUpdateTrialName} />
+                </TableCell>
                 <TableCell>{formatDurationShort(trial.totalDuration)}</TableCell>
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={Boolean(trial.trialCompleted)}
+                    onChange={(e) =>
+                      onUpdateTrialAnnotations(trial.id, { trialCompleted: e.target.checked })
+                    }
+                    aria-label={`Mark ${trial.name} as completed`}
+                  />
+                </TableCell>
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={Boolean(trial.bearFound)}
+                    onChange={(e) =>
+                      onUpdateTrialAnnotations(trial.id, { bearFound: e.target.checked })
+                    }
+                    aria-label={`Mark bear found for ${trial.name}`}
+                  />
+                </TableCell>
+                <TableCell className="max-w-[260px]">
+                  <Input
+                    value={trial.notes || ''}
+                    onChange={(e) =>
+                      onUpdateTrialAnnotations(trial.id, { notes: e.target.value })
+                    }
+                    placeholder="Add notes"
+                    className="h-8"
+                    aria-label={`Notes for ${trial.name}`}
+                  />
+                </TableCell>
                 <TableCell>{formatDate(trial.createdAt)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">

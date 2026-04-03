@@ -1,22 +1,39 @@
 import { formatTimestamp, sanitizeFilename } from '@/lib/utils';
 import type { Subject, Trial } from '@/lib/types';
 
+function csvEscape(value: string): string {
+  return `"${value.replaceAll('"', '""').replaceAll('\n', ' ')}"`;
+}
+
 /**
  * Generate CSV content for a subject with all their trials
- * Format: Subject ID, Trial Number, Total Duration, Interval, Start Time, End Time, Duration
+ * Format: Subject ID, Trial Name, Total Duration, Interval, Start Time, End Time, Duration
  */
 export function generateSubjectCSV(subject: Subject): string {
-  const headers = ['Subject ID', 'Trial Number', 'Total Duration', 'Interval', 'Start Time', 'End Time', 'Duration'];
+  const headers = [
+    'Subject ID',
+    'Trial Name',
+    'Total Duration',
+    'Trial Completed',
+    'Bear Found',
+    'Notes',
+    'Interval',
+    'Start Time',
+    'End Time',
+    'Duration',
+  ];
   const rows: string[] = [headers.join(',')];
 
   subject.trials.forEach((trial, trialIndex) => {
     const totalDurationFormatted = formatTimestamp(trial.totalDuration);
-    const trialNumber = trialIndex + 1;
+    const trialCompleted = trial.trialCompleted ? 'Yes' : 'No';
+    const bearFound = trial.bearFound ? 'Yes' : 'No';
+    const notes = trial.notes || '';
 
     if (trial.intervals.length === 0) {
       // If no intervals, just add one row with trial info
       rows.push(
-        `"${subject.name}","${trialNumber}","${totalDurationFormatted}","","","",""`
+        `${csvEscape(subject.name)},${csvEscape(trial.name)},${csvEscape(totalDurationFormatted)},${csvEscape(trialCompleted)},${csvEscape(bearFound)},${csvEscape(notes)},"","","",""`
       );
     } else {
       // Add a row for each looking interval
@@ -26,7 +43,7 @@ export function generateSubjectCSV(subject: Subject): string {
         const durationFormatted = formatTimestamp(interval.endTime - interval.startTime);
         
         rows.push(
-          `"${subject.name}","${trialNumber}","${totalDurationFormatted}","${index + 1}","${startFormatted}","${endFormatted}","${durationFormatted}"`
+          `${csvEscape(subject.name)},${csvEscape(trial.name)},${csvEscape(totalDurationFormatted)},${csvEscape(trialCompleted)},${csvEscape(bearFound)},${csvEscape(notes)},${csvEscape(String(index + 1))},${csvEscape(startFormatted)},${csvEscape(endFormatted)},${csvEscape(durationFormatted)}`
         );
       });
     }
@@ -40,15 +57,28 @@ export function generateSubjectCSV(subject: Subject): string {
  * Format: Trial Name, Total Duration, Interval, Start Time, End Time, Duration
  */
 export function generateCSV(trial: Trial): string {
-  const headers = ['Trial Name', 'Total Duration', 'Interval', 'Start Time', 'End Time', 'Duration'];
+  const headers = [
+    'Trial Name',
+    'Total Duration',
+    'Trial Completed',
+    'Bear Found',
+    'Notes',
+    'Interval',
+    'Start Time',
+    'End Time',
+    'Duration',
+  ];
   const rows: string[] = [headers.join(',')];
 
   const totalDurationFormatted = formatTimestamp(trial.totalDuration);
+  const trialCompleted = trial.trialCompleted ? 'Yes' : 'No';
+  const bearFound = trial.bearFound ? 'Yes' : 'No';
+  const notes = trial.notes || '';
 
   if (trial.intervals.length === 0) {
     // If no intervals, just add one row with trial info
     rows.push(
-      `"${trial.name}","${totalDurationFormatted}","","","",""`
+      `${csvEscape(trial.name)},${csvEscape(totalDurationFormatted)},${csvEscape(trialCompleted)},${csvEscape(bearFound)},${csvEscape(notes)},"","","",""`
     );
   } else {
     // Add a row for each looking interval
@@ -58,7 +88,7 @@ export function generateCSV(trial: Trial): string {
       const durationFormatted = formatTimestamp(interval.endTime - interval.startTime);
       
       rows.push(
-        `"${trial.name}","${totalDurationFormatted}","${index + 1}","${startFormatted}","${endFormatted}","${durationFormatted}"`
+        `${csvEscape(trial.name)},${csvEscape(totalDurationFormatted)},${csvEscape(trialCompleted)},${csvEscape(bearFound)},${csvEscape(notes)},${csvEscape(String(index + 1))},${csvEscape(startFormatted)},${csvEscape(endFormatted)},${csvEscape(durationFormatted)}`
       );
     });
   }

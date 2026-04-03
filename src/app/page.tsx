@@ -20,8 +20,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { downloadSubjectCSV } from '@/lib/csv-export';
-import type { Subject } from '@/lib/types';
+import type { Subject, Trial } from '@/lib/types';
 import { formatDurationShort, generateId } from '@/lib/utils';
+import { DEFAULT_TRIAL_NAMES, createDefaultTrial, createDefaultTrials, hydrateSubjectTrials } from '@/lib/trials';
 
 export default function Home() {
   const {
@@ -42,6 +43,12 @@ export default function Home() {
   const [timeLimitInput, setTimeLimitInput] = useState('120'); // seconds
   const [timeLimitError, setTimeLimitError] = useState('');
   const [selectedTrialIndex, setSelectedTrialIndex] = useState<number | null>(null);
+  const [pendingTrial, setPendingTrial] = useState<Trial | null>(null);
+  const [pendingTrialIndex, setPendingTrialIndex] = useState<number | null>(null);
+  const [trialCompleted, setTrialCompleted] = useState(false);
+  const [bearFound, setBearFound] = useState(false);
+  const [trialNotes, setTrialNotes] = useState('');
+  const activeTrialIndexRef = useRef<number | null>(null);
   
   // Dialog states
   const [newSubjectDialogOpen, setNewSubjectDialogOpen] = useState(false);
@@ -59,11 +66,12 @@ export default function Home() {
     const saved = localStorage.getItem('looking-time-recorder-subjects');
     if (saved) {
       try {
-        const loadedSubjects = JSON.parse(saved);
+        const loadedSubjects = JSON.parse(saved).map(hydrateSubjectTrials);
         setSubjects(loadedSubjects);
         // Find the most recent subject and set as current
         if (loadedSubjects.length > 0) {
           setCurrentSubject(loadedSubjects[loadedSubjects.length - 1]);
+          setSelectedTrialIndex(0);
         }
       } catch (e) {
         console.error('Failed to load subjects:', e);
@@ -114,9 +122,13 @@ export default function Home() {
 
   // Generate next trial name
   const getNextTrialName = useCallback(() => {
-    if (!currentSubject) return 'Trial 1';
-    return `Trial ${currentSubject.trials.length + 1}`;
-  }, [currentSubject]);
+    if (!currentSubject || currentSubject.trials.length === 0) {
+      return 'PT01';
+    }
+
+    const trialIndex = selectedTrialIndex ?? 0;
+    return currentSubject.trials[trialIndex]?.name ?? currentSubject.trials[0].name;
+  }, [currentSubject, selectedTrialIndex]);
 
   // Handle starting a new recording
   const handleStartRecording = useCallback(() => {
@@ -125,11 +137,27 @@ export default function Home() {
       return;
     }
 
-    const trialName = getNextTrialName();
+    if (pendingTrial) {
+      toast.error('Save the current trial before starting a new one');
+      return;
+    }
+
+    const trialIndex = selectedTrialIndex ?? 0;
+    const trial = currentSubject.trials[trialIndex] ?? currentSubject.trials[0];
+    if (!trial) {
+      toast.error('No trial slot is available for this subject');
+      return;
+    }
+
+    const trialName = trial.name;
+    setTrialCompleted(false);
+    setBearFound(false);
+    setTrialNotes('');
     startRecording(trialName);
+    activeTrialIndexRef.current = trialIndex;
     autoEndTriggeredRef.current = false;
     toast.success(`Recording ${trialName} started`);
-  }, [currentSubject, startRecording, getNextTrialName]);
+  }, [currentSubject, pendingTrial, selectedTrialIndex, startRecording]);
 
   // Handle ending recording
   const handleEndRecording = useCallback(() => {
@@ -137,21 +165,61 @@ export default function Home() {
 
     const completedTrial = endRecording();
     if (completedTrial) {
-      // Add the trial to the current subject
-      const updatedSubject = {
-        ...currentSubject,
-        trials: [...currentSubject.trials, completedTrial],
-      };
-      
-      const updatedSubjects = subjects.map((s) =>
-        s.id === currentSubject.id ? updatedSubject : s
-      );
-      
-      saveSubjects(updatedSubjects);
-      setCurrentSubject(updatedSubject);
-      toast.success(`Trial "${completedTrial.name}" saved!`);
+      setPendingTrial(completedTrial);
+      setPendingTrialIndex(activeTrialIndexRef.current ?? selectedTrialIndex ?? 0);
+      setTrialCompleted(false);
+      setBearFound(false);
+      setTrialNotes('');
+      toast.info(`Recording ended for ${completedTrial.name}. Add annotations, then save.`);
     }
-  }, [endRecording, currentSubject, subjects, saveSubjects]);
+  }, [endRecording, currentSubject]);
+
+  // Save a pending trial after annotations are entered
+  const handleSavePendingTrial = useCallback(() => {
+    if (!currentSubject || !pendingTrial) return;
+
+    const trialIndex = pendingTrialIndex ?? selectedTrialIndex ?? 0;
+    const currentTrialName = currentSubject.trials[trialIndex]?.name ?? pendingTrial.name;
+
+    const annotatedTrial: Trial = {
+      ...pendingTrial,
+      name: currentTrialName,
+      trialCompleted,
+      bearFound,
+      notes: trialNotes.trim(),
+    };
+
+    const updatedSubject = {
+      ...currentSubject,
+      trials: currentSubject.trials.map((trial, index) =>
+        index === trialIndex ? annotatedTrial : trial
+      ),
+    };
+
+    const updatedSubjects = subjects.map((s) =>
+      s.id === currentSubject.id ? updatedSubject : s
+    );
+
+    saveSubjects(updatedSubjects);
+    setCurrentSubject(updatedSubject);
+    setPendingTrial(null);
+    setPendingTrialIndex(null);
+    activeTrialIndexRef.current = null;
+    setTrialCompleted(false);
+    setBearFound(false);
+    setTrialNotes('');
+    setSelectedTrialIndex(trialIndex < updatedSubject.trials.length - 1 ? trialIndex + 1 : trialIndex);
+    toast.success(`Trial "${annotatedTrial.name}" saved!`);
+  }, [
+    currentSubject,
+    pendingTrial,
+    pendingTrialIndex,
+    trialCompleted,
+    bearFound,
+    trialNotes,
+    subjects,
+    saveSubjects,
+  ]);
 
   // Keyboard event handler
   useEffect(() => {
@@ -245,12 +313,16 @@ export default function Home() {
       id: generateId(),
       name: subjectName.trim(),
       createdAt: new Date().toISOString(),
-      trials: [],
+      trials: createDefaultTrials(),
     };
 
     const updatedSubjects = [...subjects, newSubject];
     saveSubjects(updatedSubjects);
     setCurrentSubject(newSubject);
+    setSelectedTrialIndex(0);
+    setPendingTrial(null);
+    setPendingTrialIndex(null);
+    activeTrialIndexRef.current = null;
     setNewSubjectDialogOpen(false);
     setSubjectName('');
     setSubjectNameError('');
@@ -288,9 +360,16 @@ export default function Home() {
   const handleDeleteTrial = useCallback((trialId: string) => {
     if (!currentSubject) return;
 
+    const trialIndex = currentSubject.trials.findIndex((trial) => trial.id === trialId);
+    if (trialIndex < 0) return;
+
     const updatedSubject = {
       ...currentSubject,
-      trials: currentSubject.trials.filter((t) => t.id !== trialId),
+      trials: currentSubject.trials.map((trial, index) =>
+        index === trialIndex
+          ? createDefaultTrial(DEFAULT_TRIAL_NAMES[trialIndex] ?? trial.name)
+          : trial
+      ),
     };
 
     const updatedSubjects = subjects.map((s) =>
@@ -299,8 +378,79 @@ export default function Home() {
 
     saveSubjects(updatedSubjects);
     setCurrentSubject(updatedSubject);
+    setPendingTrialIndex(null);
+    activeTrialIndexRef.current = null;
+    setSelectedTrialIndex((currentIndex) => currentIndex ?? 0);
     toast.success('Trial deleted');
   }, [currentSubject, subjects, saveSubjects]);
+
+  // Handle updating a trial name
+  const handleUpdateTrialName = useCallback(
+    (trialId: string, name: string) => {
+      if (!currentSubject) return;
+
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        toast.error('Trial name cannot be empty');
+        return;
+      }
+
+      const isDuplicate = currentSubject.trials.some(
+        (trial) => trial.id !== trialId && trial.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (isDuplicate) {
+        toast.error('Trial names must be unique within a subject');
+        return;
+      }
+
+      const updatedSubject = {
+        ...currentSubject,
+        trials: currentSubject.trials.map((trial) =>
+          trial.id === trialId
+            ? {
+                ...trial,
+                name: trimmedName,
+              }
+            : trial
+        ),
+      };
+
+      const updatedSubjects = subjects.map((s) =>
+        s.id === currentSubject.id ? updatedSubject : s
+      );
+
+      saveSubjects(updatedSubjects);
+      setCurrentSubject(updatedSubject);
+    },
+    [currentSubject, subjects, saveSubjects]
+  );
+
+  // Handle updating annotations for a saved trial
+  const handleUpdateTrialAnnotations = useCallback(
+    (trialId: string, updates: { trialCompleted?: boolean; bearFound?: boolean; notes?: string }) => {
+      if (!currentSubject) return;
+
+      const updatedSubject = {
+        ...currentSubject,
+        trials: currentSubject.trials.map((trial) =>
+          trial.id === trialId
+            ? {
+                ...trial,
+                ...updates,
+              }
+            : trial
+        ),
+      };
+
+      const updatedSubjects = subjects.map((s) =>
+        s.id === currentSubject.id ? updatedSubject : s
+      );
+
+      saveSubjects(updatedSubjects);
+      setCurrentSubject(updatedSubject);
+    },
+    [currentSubject, subjects, saveSubjects]
+  );
 
   // Handle clearing all trials for current subject
   const handleClearAllTrials = useCallback(() => {
@@ -308,7 +458,7 @@ export default function Home() {
 
     const updatedSubject = {
       ...currentSubject,
-      trials: [],
+      trials: createDefaultTrials(),
     };
 
     const updatedSubjects = subjects.map((s) =>
@@ -317,6 +467,10 @@ export default function Home() {
 
     saveSubjects(updatedSubjects);
     setCurrentSubject(updatedSubject);
+    setPendingTrial(null);
+    setPendingTrialIndex(null);
+    activeTrialIndexRef.current = null;
+    setSelectedTrialIndex(0);
     toast.success('All trials cleared');
   }, [currentSubject, subjects, saveSubjects]);
 
@@ -333,6 +487,10 @@ export default function Home() {
   // Handle switching subjects
   const handleSelectSubject = useCallback((subject: Subject) => {
     setCurrentSubject(subject);
+    setSelectedTrialIndex(0);
+    setPendingTrial(null);
+    setPendingTrialIndex(null);
+    activeTrialIndexRef.current = null;
     toast.info(`Switched to subject "${subject.name}"`);
   }, []);
 
@@ -344,9 +502,18 @@ export default function Home() {
     // If we deleted the current subject, select another or null
     if (currentSubject?.id === subjectId) {
       setCurrentSubject(updatedSubjects.length > 0 ? updatedSubjects[updatedSubjects.length - 1] : null);
+      setSelectedTrialIndex(0);
+      setPendingTrial(null);
+      setPendingTrialIndex(null);
+      activeTrialIndexRef.current = null;
     }
     toast.success('Subject deleted');
   }, [subjects, currentSubject, saveSubjects]);
+
+  const pendingTrialLabel =
+    pendingTrial && currentSubject
+      ? currentSubject.trials[pendingTrialIndex ?? selectedTrialIndex ?? 0]?.name ?? pendingTrial.name
+      : pendingTrial?.name;
 
   return (
     <div className="min-h-screen bg-background">
@@ -406,6 +573,21 @@ export default function Home() {
                 >
                   Set Trial Time Limit
                 </Button>
+                <select
+                  className="h-10 min-w-[160px] rounded-md border bg-background px-3 py-2 text-center text-sm leading-none"
+                  value={selectedTrialIndex === null ? '' : String(selectedTrialIndex)}
+                  onChange={(e) => setSelectedTrialIndex(Number(e.target.value))}
+                  disabled={isRecording || !currentSubject}
+                >
+                  <option value="">
+                    Select trial
+                  </option>
+                  {currentSubject?.trials.map((trial, index) => (
+                    <option key={trial.id} value={index}>
+                      {trial.name}
+                    </option>
+                  ))}
+                </select>
                 {subjects.length > 1 && (
                   <select
                     className="h-10 px-3 py-2 border rounded-md bg-background text-sm"
@@ -442,9 +624,71 @@ export default function Home() {
             </div>
             <p className="text-center text-xs text-muted-foreground">Time limit: {formatDurationShort(trialTimeLimitMs)}</p>
 
+            {/* Trial annotations */}
+            <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Trial annotations</p>
+                <p className="text-xs text-muted-foreground">
+                  {pendingTrialLabel
+                    ? `Add outcomes and notes for ${pendingTrialLabel}, then save the trial.`
+                    : 'End a recording to annotate and save that trial.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={trialCompleted}
+                    onChange={(e) => setTrialCompleted(e.target.checked)}
+                    disabled={!pendingTrial}
+                  />
+                  Trial completed
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={bearFound}
+                    onChange={(e) => setBearFound(e.target.checked)}
+                    disabled={!pendingTrial}
+                  />
+                  Bear found
+                </label>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="trial-notes" className="text-sm font-medium">Experimenter notes</label>
+                <textarea
+                  id="trial-notes"
+                  className="w-full min-h-20 rounded-md border bg-background px-3 py-2 text-sm shadow-xs outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Optional notes about behavior, interruptions, or trial context"
+                  value={trialNotes}
+                  onChange={(e) => setTrialNotes(e.target.value)}
+                  disabled={!pendingTrial}
+                />
+              </div>
+            </div>
+
             {/* Controls */}
             <div className="flex justify-center gap-4">
-              {!isRecording ? (
+              {isRecording ? (
+                <Button
+                  size="lg"
+                  variant="destructive"
+                  onClick={handleEndRecording}
+                  className="min-w-[180px]"
+                >
+                  End Recording
+                </Button>
+              ) : pendingTrial ? (
+                <Button
+                  size="lg"
+                  onClick={handleSavePendingTrial}
+                  className="min-w-[180px]"
+                >
+                  Save {pendingTrialLabel}
+                </Button>
+              ) : (
                 <Button
                   size="lg"
                   onClick={() => {
@@ -459,15 +703,6 @@ export default function Home() {
                   {currentSubject ? `Start ${getNextTrialName()}` : 'New Subject'}
                   <span className="text-xs ml-2 opacity-75">(Space)</span>
                 </Button>
-              ) : (
-                <Button
-                  size="lg"
-                  variant="destructive"
-                  onClick={handleEndRecording}
-                  className="min-w-[180px]"
-                >
-                  End Recording
-                </Button>
               )}
             </div>
 
@@ -481,7 +716,7 @@ export default function Home() {
                 </p>
               ) : (
                 <p>
-                  Press <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Esc</kbd> at any time to exit and save the trial
+                  End recording first, then add annotations and press Save Trial
                 </p>
               )}
             </div>
@@ -496,6 +731,8 @@ export default function Home() {
               subjectName={currentSubject?.name}
               selectedTrialIndex={selectedTrialIndex}
               onDeleteTrial={handleDeleteTrial}
+              onUpdateTrialName={handleUpdateTrialName}
+              onUpdateTrialAnnotations={handleUpdateTrialAnnotations}
               onClearAllTrials={handleClearAllTrials}
               onDownloadCSV={handleDownloadCSV}
               onDeleteSubject={currentSubject ? () => handleDeleteSubject(currentSubject.id) : undefined}

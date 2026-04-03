@@ -141,7 +141,7 @@ export interface UseRecordingReturn {
   /** Start a new recording with a trial name */
   startRecording: (trialName: string) => void;
   /** End the current recording and return the completed trial */
-  endRecording: () => Trial | null;
+  endRecording: (metadata?: Pick<Trial, 'trialCompleted' | 'bearFound' | 'notes'>) => Trial | null;
   /** Cancel the current recording without saving */
   cancelRecording: () => void;
   /** Start looking (spacebar pressed down) */
@@ -187,7 +187,7 @@ export function useRecording(): UseRecordingReturn {
     dispatch({ type: 'START_RECORDING', payload: { trialName } });
   }, []);
 
-  const endRecording = useCallback((): Trial | null => {
+  const endRecording = useCallback((metadata?: Pick<Trial, 'trialCompleted' | 'bearFound' | 'notes'>): Trial | null => {
     if (state.status !== 'recording') {
       return null;
     }
@@ -213,6 +213,9 @@ export function useRecording(): UseRecordingReturn {
       createdAt: state.currentTrial.createdAt!,
       totalDuration: state.elapsedTime,
       intervals,
+      trialCompleted: metadata?.trialCompleted,
+      bearFound: metadata?.bearFound,
+      notes: metadata?.notes,
     };
   }, [state]);
 
