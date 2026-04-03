@@ -519,9 +519,9 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="container mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold">Looking Time Recorder</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               variant="ghost"
               size="icon"
@@ -531,6 +531,24 @@ export default function Home() {
               {isMuted ? '🔇' : '🔊'}
             </Button>
             <KeyboardShortcuts variant="icon" />
+            <Button
+              variant="outline"
+              onClick={() => setNewSubjectDialogOpen(true)}
+              disabled={isRecording}
+            >
+              New Subject
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTimeLimitInput(String(Math.round(trialTimeLimitMs / 1000)));
+                setTimeLimitDialogOpen(true);
+                setTimeLimitError('');
+              }}
+              disabled={isRecording}
+            >
+              Set Trial Time Limit
+            </Button>
           </div>
         </div>
       </header>
@@ -555,24 +573,6 @@ export default function Home() {
                 )}
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setNewSubjectDialogOpen(true)}
-                  disabled={isRecording}
-                >
-                  New Subject
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setTimeLimitInput(String(Math.round(trialTimeLimitMs / 1000)));
-                    setTimeLimitDialogOpen(true);
-                    setTimeLimitError('');
-                  }}
-                  disabled={isRecording}
-                >
-                  Set Trial Time Limit
-                </Button>
                 <select
                   className="h-10 min-w-[160px] rounded-md border bg-background px-3 py-2 text-center text-sm leading-none"
                   value={selectedTrialIndex === null ? '' : String(selectedTrialIndex)}
